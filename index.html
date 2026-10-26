@@ -304,6 +304,9 @@ function tick() { $("clock").textContent = fmt(nowMs()); if (state === "rec") do
 async function begin(continuing) {
   showErr("");
   if (!navigator.mediaDevices || !window.MediaRecorder) { showErr("這個瀏覽器不能錄音，請改用 Chrome。"); return; }
+  // 先開麥克風，成功了才建立新的錄音紀錄，避免留下空的紀錄
+  try { await openMic(); }
+  catch (e) { showErr(e && e.name === "NotAllowedError" ? "麥克風被拒絕了。請點網址列左邊的圖示，把「麥克風」改成允許，再重新整理頁面。" : "打不開麥克風（" + (e && e.name) + "）。"); return; }
   if (!continuing) {
     await clearAll();
     const d = new Date();
@@ -311,8 +314,6 @@ async function begin(continuing) {
     accMs = 0; part = 0; renderAll();
   } else { accMs = session.durationMs || 0; part = session.parts; }
   chunkIdx = 0;
-  try { await openMic(); }
-  catch (e) { showErr(e && e.name === "NotAllowedError" ? "麥克風被拒絕了。請點網址列左邊的圖示，把「麥克風」改成允許，再重新整理頁面。" : "打不開麥克風（" + (e && e.name) + "）。"); return; }
   session.parts = part + 1; session.mime = recMime || (recorder && recorder.mimeType) || "audio/webm";
   if (!SR) showErr("這個瀏覽器沒有內建聽寫，只會錄音。錄完可以把錄音檔交給小龍精修。");
   runStart = Date.now(); setState("rec"); saveSession();
