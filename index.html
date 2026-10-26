@@ -123,23 +123,24 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     <label for="title">標題（會用在檔名）</label>
     <input type="text" id="title" autocomplete="off">
     <div class="row">
-      <button class="btn" id="btnCopy">複製逐字稿</button>
+      <button class="btn" id="btnCopyOpen">複製並開啟整理頁</button>
+      <button class="btn ghost" id="btnCopy">只複製逐字稿</button>
       <button class="btn ghost" id="btnTxt">下載逐字稿</button>
       <span id="audioLinks" class="row"></span>
     </div>
     <textarea id="copyFallback" rows="6" readonly hidden></textarea>
-    <p class="keys" id="takeMsg">複製後到整理頁貼上，就能整理成會議紀錄或課程講義。</p>
+    <p class="keys" id="takeMsg">按「複製並開啟整理頁」，在整理頁的「貼上逐字稿」貼上、存好，就會自動產生快速大綱與結論。</p>
     <div class="row"><button class="btn ghost" id="btnDiag">複製診斷紀錄（出問題時給小龍）</button></div>
     <div class="row"><button class="btn danger" id="btnNew">清除，開始新的錄音</button></div>
     <p class="notice warn" id="confirmNew" hidden>確定清除嗎？逐字稿和錄音檔會從這台裝置刪掉，沒下載的就找不回來。
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.1.2 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.2.0 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.1.2";
+const VERSION = "1.2.0";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -231,12 +232,32 @@ function setInterim(text) {
   interimEl.querySelector(".tx").textContent = text;
   if (stick) $("script").scrollTop = $("script").scrollHeight;
 }
-function commitSeg(text) {
+// ---- 停頓規則加標點：說話中停頓約 0.7 秒加「，」，一段結束加「。」，問句尾加「？」 ----
+const PAUSE_MS = 700;
+let pauseMarks = [], lastResultAt = 0, prevInterimLen = 0;
+function punctuate(text, marks, noEnd) {
   text = (text || "").trim();
+  if (!text || /[，。？！、,.?!]/.test(text)) return text; // 聽寫自己有標點就不動
+  let out = "", last = 0;
+  for (const m of [...new Set(marks)].sort((a, b) => a - b)) {
+    if (m <= last + 1 || m >= text.length - 1) continue; // 太靠近開頭、上一個逗號或句尾就不加
+    out += text.slice(last, m) + "，"; last = m;
+  }
+  out += text.slice(last);
+  return noEnd ? out : out + (/[嗎呢吧嘛麼]$/.test(out) ? "？" : "。");
+}
+function notePause(interimLen) {
+  const now = Date.now();
+  if (lastResultAt && now - lastResultAt >= PAUSE_MS && prevInterimLen > 0 && interimLen > prevInterimLen) pauseMarks.push(prevInterimLen);
+  lastResultAt = now; prevInterimLen = interimLen;
+}
+function commitSeg(text) {
+  const raw = (text || "").trim();
+  text = punctuate(raw, pauseMarks); pauseMarks = []; prevInterimLen = 0;
   const t = segStart ?? nowMs(); segStart = null; interimText = "";
   if (!text) return;
   const stick = nearBottom();
-  const seg = { t, text }; session.segments.push(seg); addSegEl(seg); updateCount(); saveSession();
+  const seg = { t, text }; if (raw !== text) seg.raw = raw; session.segments.push(seg); addSegEl(seg); updateCount(); saveSession();
   if (stick) $("script").scrollTop = $("script").scrollHeight;
 }
 
@@ -254,7 +275,8 @@ function startSR() {
         if (r.isFinal) { diag("出字一段（" + r[0].transcript.length + " 字）"); setInterim(""); commitSeg(r[0].transcript); }
         else interim += r[0].transcript;
       }
-      interimText = interim; setInterim(interim);
+      notePause(interim.length);
+      interimText = interim; setInterim(interim ? punctuate(interim, pauseMarks, true) : "");
     };
     rec.onstart = () => diag("聽寫開始");
     rec.onerror = (ev) => {
@@ -450,6 +472,15 @@ async function showTakeaway() {
   });
 }
 $("title").addEventListener("input", () => { session.title = $("title").value.trim() || session.title; saveSession(); });
+const NOTES_URL = "https://claude.ai/artifact/SPVgmabuW736nW4oEsf3wg";
+$("btnCopyOpen").onclick = async () => {
+  const text = transcriptText();
+  let copied = false;
+  try { await navigator.clipboard.writeText(text); copied = true; } catch (e) {}
+  const w = window.open(NOTES_URL, "_blank");
+  if (copied) $("takeMsg").textContent = "已複製（" + session.segments.length + " 段）" + (w ? "，整理頁已在新分頁打開。" : "。新分頁被擋住了，請手動打開整理頁：" + NOTES_URL) + "在「貼上逐字稿」貼上（⌘＋V／長按貼上）再按「存成一筆紀錄」。";
+  else { const f = $("copyFallback"); f.value = text; f.hidden = false; f.focus(); f.select(); $("takeMsg").textContent = "自動複製失敗，請在上面的框裡全選後複製，再到整理頁貼上。"; }
+};
 $("btnCopy").onclick = async () => {
   const text = transcriptText();
   try { await navigator.clipboard.writeText(text); $("takeMsg").textContent = "已複製（" + session.segments.length + " 段）。到整理頁貼上就可以整理。"; $("copyFallback").hidden = true; }
