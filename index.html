@@ -76,6 +76,7 @@ kbd { font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--li
 .btn.danger { background: transparent; color: var(--rec); border-color: var(--rec); }
 textarea { width: 100%; font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--bg); color: var(--fg); }
 input[type=text] { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+.tabmode { display: grid; justify-items: center; gap: 6px; border-top: 1px solid var(--line); padding-top: 14px; width: 100%; }
 footer { color: var(--muted); font-size: 12px; text-align: center; }
 @media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
 </style>
@@ -103,6 +104,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
       <button class="stop" id="btnStop" aria-label="結束錄音" hidden>■ 結束</button>
     </div>
     <p class="keys">電腦快速鍵：<kbd>R</kbd> 開始／暫停　<kbd>S</kbd> 結束</p>
+    <div class="tabmode" id="tabMode" hidden>
+      <button class="btn ghost" id="btnTab">錄電腦播放的聲音（線上課程）</button>
+      <p class="keys">按下後選「分頁」→ 點播放課程的分頁 → 打開「同時分享分頁音訊」→ 分享。這個模式不即時出字，錄完交給小龍精修。</p>
+    </div>
   </section>
 
   <p class="notice warn" id="keepOn" hidden>錄音中請保持螢幕亮著、不要切到別的 App，手機鎖螢幕可能會中斷錄音。</p>
@@ -130,11 +135,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.0.2 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.1.0 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.0.2";
+const VERSION = "1.1.0";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -147,6 +152,8 @@ let accMs = 0, runStart = 0;
 let stream = null, recorder = null, recMime = "", part = 0, chunkIdx = 0;
 let rec = null, srWanted = false, srBroken = false, segStart = null, interimText = "", interimEl = null;
 let wake = null, raf = 0, audioCtx = null, tickTimer = 0, peak = 0;
+let mode = "mic"; // mic：麥克風＋即時聽寫；tab：錄電腦（Chrome 分頁）的聲音，不即時出字
+const canTab = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !/iPhone|iPad|Android/.test(navigator.userAgent);
 
 // 診斷紀錄：記下聽寫與錄音的每個事件，出問題時複製給小龍
 const diagBuf = []; // 錄音紀錄建立前的事件先放這裡
@@ -268,15 +275,26 @@ function stopSR() { srWanted = false; try { rec && rec.stop(); } catch (e) {} }
 
 // ---- 錄音 ----
 async function openMic() {
-  // 關掉回音消除與降噪：開著的話，電腦喇叭播放的聲音（線上課程、影片）會被當成回音消掉，錄出來幾乎無聲
-  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+  if (mode === "tab") {
+    // 錄電腦聲音：Chrome 規定要「分享畫面」才拿得到聲音，只留聲音、畫面馬上關掉
+    const ds = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, selfBrowserSurface: "exclude", systemAudio: "include" });
+    ds.getVideoTracks().forEach((t) => t.stop());
+    if (!ds.getAudioTracks().length) { const err = new Error("no audio"); err.name = "NoTabAudio"; throw err; }
+    stream = new MediaStream(ds.getAudioTracks());
+  } else {
+    // 關掉回音消除與降噪：開著的話，電腦喇叭播放的聲音（線上課程、影片）會被當成回音消掉，錄出來幾乎無聲
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+  }
   // 優先錄 m4a（AAC）：iPhone、Mac、Google 雲端硬碟都能直接播放；不支援才退回 webm
   recMime = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
   recorder = new MediaRecorder(stream, recMime ? { mimeType: recMime, audioBitsPerSecond: 64000 } : undefined);
   const track = stream.getAudioTracks()[0];
   diag("麥克風開啟：" + (track && track.label) + "，格式 " + (recorder.mimeType || recMime));
   try { const st = track.getSettings(); diag("回音消除 " + st.echoCancellation + "、降噪 " + st.noiseSuppression + "、自動增益 " + st.autoGainControl); } catch (e) {}
-  if (track) { track.onmute = () => diag("⚠ 麥克風被靜音（mute）"); track.onunmute = () => diag("麥克風恢復（unmute）"); track.onended = () => diag("⚠ 麥克風中斷（ended）"); }
+  if (track) { track.onmute = () => diag("⚠ 麥克風被靜音（mute）"); track.onunmute = () => diag("麥克風恢復（unmute）"); track.onended = () => {
+    diag("⚠ 收音中斷（ended）");
+    if (mode === "tab" && (state === "rec" || state === "pause")) { showErr("已經停止分享分頁聲音，錄音自動結束。"); finish(); }
+  }; }
   recorder.onerror = (ev) => diag("⚠ 錄音錯誤：" + (ev.error && ev.error.name));
   recorder.ondataavailable = (ev) => {
     diag("錄音片段 " + (ev.data ? ev.data.size : 0) + " bytes，這 5 秒最大音量 " + peak);
@@ -317,6 +335,7 @@ function setState(s) {
   main.setAttribute("aria-label", main.textContent);
   main.hidden = s === "done";
   $("btnStop").hidden = !(s === "rec" || s === "pause");
+  $("tabMode").hidden = !(canTab && s === "idle");
   st.className = "status" + (s === "rec" ? " rec" : s === "pause" ? " pause" : s === "done" ? " done" : "");
   st.textContent = { idle: "待命", rec: "錄音中", pause: "已暫停", done: "已結束" }[s];
   $("keepOn").hidden = !(s === "rec" || s === "pause");
@@ -325,23 +344,33 @@ function setState(s) {
 }
 function tick() { $("clock").textContent = fmt(nowMs()); if (state === "rec") document.title = "● " + fmt(nowMs()) + " 錄音中"; }
 
-async function begin(continuing) {
+async function begin(continuing, newMode) {
   showErr("");
   if (!navigator.mediaDevices || !window.MediaRecorder) { showErr("這個瀏覽器不能錄音，請改用 Chrome。"); return; }
-  // 先開麥克風，成功了才建立新的錄音紀錄，避免留下空的紀錄
+  mode = continuing ? (session.source || "mic") : (newMode || "mic");
+  // 先開收音，成功了才建立新的錄音紀錄，避免留下空的紀錄
   try { await openMic(); }
-  catch (e) { showErr(e && e.name === "NotAllowedError" ? "麥克風被拒絕了。請點網址列左邊的圖示，把「麥克風」改成允許，再重新整理頁面。" : "打不開麥克風（" + (e && e.name) + "）。"); return; }
+  catch (e) {
+    const n = e && e.name;
+    showErr(mode === "tab"
+      ? (n === "NoTabAudio" ? "沒有收到聲音。請重新按一次，選「分頁」標籤裡播放課程的那個分頁，並打開下方的「同時分享分頁音訊」。" : n === "NotAllowedError" ? "已取消分享。要錄電腦聲音時，請選一個分頁並按「分享」。" : "無法錄電腦聲音（" + n + "）。")
+      : (n === "NotAllowedError" ? "麥克風被拒絕了。請點網址列左邊的圖示，把「麥克風」改成允許，再重新整理頁面。" : "打不開麥克風（" + n + "）。"));
+    return;
+  }
   if (!continuing) {
     await clearAll();
     const d = new Date();
-    session = { v: VERSION, id: "s" + d.getTime(), startedAt: d.toISOString(), title: "錄音_" + stamp(d), durationMs: 0, parts: 0, segments: [], mime: "" };
+    session = { v: VERSION, id: "s" + d.getTime(), startedAt: d.toISOString(), title: (mode === "tab" ? "課程錄音_" : "錄音_") + stamp(d), durationMs: 0, parts: 0, segments: [], mime: "", source: mode };
     accMs = 0; part = 0; renderAll();
   } else { accMs = session.durationMs || 0; part = session.parts; }
   chunkIdx = 0;
   session.parts = part + 1; session.mime = recMime || (recorder && recorder.mimeType) || "audio/webm";
-  if (!SR) showErr("這個瀏覽器沒有內建聽寫，只會錄音。錄完可以把錄音檔交給小龍精修。");
+  if (mode === "tab") showErr("");
+  else if (!SR) showErr("這個瀏覽器沒有內建聽寫，只會錄音。錄完可以把錄音檔交給小龍精修。");
+  $("emptyHint").textContent = mode === "tab" ? "錄電腦聲音時不會即時出字。錄完請下載錄音檔交給小龍，用 Mac 的 Whisper 轉成有標點的逐字稿。" : "按下「開始錄音」後，說的話會一段一段出現在這裡，每段前面是時間。";
   runStart = Date.now(); setState("rec"); saveSession();
-  startSR(); wakeOn();
+  if (mode !== "tab") startSR();
+  wakeOn();
   clearInterval(tickTimer); tickTimer = setInterval(() => { tick(); if (Date.now() % 10000 < 500) saveSession(); }, 500);
   $("recover").hidden = true;
 }
@@ -354,7 +383,7 @@ function pause() {
 function resume() {
   if (state !== "pause") return;
   try { recorder.resume(); } catch (e) {}
-  runStart = Date.now(); setState("rec"); startSR(); wakeOn();
+  runStart = Date.now(); setState("rec"); if (mode !== "tab") startSR(); wakeOn();
 }
 async function finish() {
   if (state !== "rec" && state !== "pause") return;
@@ -371,7 +400,7 @@ function transcriptText() {
   const d = new Date(session.startedAt);
   const head = ["# " + ($("title").value.trim() || session.title),
     "錄音時間：" + d.toLocaleString("zh-TW", { hour12: false }), "長度：" + fmt(session.durationMs),
-    "來源：龍哥的錄音頁 " + VERSION + "（瀏覽器內建聽寫）", ""];
+    "來源：龍哥的錄音頁 " + VERSION + (session.source === "tab" ? "（錄電腦聲音，無即時逐字稿）" : "（瀏覽器內建聽寫）"), ""];
   return head.concat(session.segments.map((s) => "[" + fmt(s.t) + "] " + s.text)).join("\n") + "\n";
 }
 function safeName() { return ($("title").value.trim() || session.title).replace(/[\\/:*?"<>|]/g, "_"); }
@@ -415,11 +444,13 @@ $("btnNew").onclick = () => { $("confirmNew").hidden = false; };
 $("btnNewNo").onclick = () => { $("confirmNew").hidden = true; };
 $("btnNewYes").onclick = async () => {
   await clearAll(); session = null; accMs = 0; renderAll(); $("segCount").textContent = "內建聽寫，會漏字、沒有標點，整理時會補上";
+  $("emptyHint").textContent = "按下「開始錄音」後，說的話會一段一段出現在這裡，每段前面是時間。";
   $("emptyHint").hidden = false; $("confirmNew").hidden = true; $("clock").textContent = "00:00"; setState("idle");
 };
 
 // ---- 按鈕與快速鍵 ----
-$("btnMain").onclick = () => { if (state === "idle") begin(false); else if (state === "rec") pause(); else if (state === "pause") resume(); };
+$("btnTab").onclick = () => { if (state === "idle") begin(false, "tab"); };
+$("btnMain").onclick = () => { if (state === "idle") begin(false, "mic"); else if (state === "rec") pause(); else if (state === "pause") resume(); };
 $("btnStop").onclick = finish;
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || /INPUT|TEXTAREA/.test(e.target.tagName)) return;
@@ -434,7 +465,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) { hiddenAt = Date.now(); saveSession(); return; }
   if (state === "rec") {
     wakeOn();
-    if (Date.now() - hiddenAt > 3000) showErr("剛剛離開了這個畫面約 " + Math.round((Date.now() - hiddenAt) / 1000) + " 秒，這段時間的逐字稿可能沒有出來（錄音檔通常還在）。");
+    if (mode !== "tab" && Date.now() - hiddenAt > 3000) showErr("剛剛離開了這個畫面約 " + Math.round((Date.now() - hiddenAt) / 1000) + " 秒，這段時間的逐字稿可能沒有出來（錄音檔通常還在）。");
     if (srWanted) { try { rec && rec.abort(); } catch (e) {} }
   }
 });
