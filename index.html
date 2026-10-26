@@ -124,16 +124,17 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     </div>
     <textarea id="copyFallback" rows="6" readonly hidden></textarea>
     <p class="keys" id="takeMsg">複製後到整理頁貼上，就能整理成會議紀錄或課程講義。</p>
+    <div class="row"><button class="btn ghost" id="btnDiag">複製診斷紀錄（出問題時給小龍）</button></div>
     <div class="row"><button class="btn danger" id="btnNew">清除，開始新的錄音</button></div>
     <p class="notice warn" id="confirmNew" hidden>確定清除嗎？逐字稿和錄音檔會從這台裝置刪掉，沒下載的就找不回來。
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.0.0 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.0.1 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -145,7 +146,16 @@ let state = "idle"; // idle | rec | pause | done
 let accMs = 0, runStart = 0;
 let stream = null, recorder = null, recMime = "", part = 0, chunkIdx = 0;
 let rec = null, srWanted = false, srBroken = false, segStart = null, interimText = "", interimEl = null;
-let wake = null, raf = 0, audioCtx = null, tickTimer = 0;
+let wake = null, raf = 0, audioCtx = null, tickTimer = 0, peak = 0;
+
+// 診斷紀錄：記下聽寫與錄音的每個事件，出問題時複製給小龍
+const diagBuf = []; // 錄音紀錄建立前的事件先放這裡
+function diag(msg) {
+  if (!session) { diagBuf.push(fmt(nowMs()) + " " + msg); return; }
+  if (diagBuf.length) session.diag = (session.diag || []).concat(diagBuf.splice(0));
+  (session.diag = session.diag || []).push(fmt(nowMs()) + " " + msg);
+  if (session.diag.length > 400) session.diag.splice(0, session.diag.length - 400);
+}
 
 const nowMs = () => accMs + (state === "rec" ? Date.now() - runStart : 0);
 function fmt(ms) {
@@ -233,32 +243,44 @@ function startSR() {
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
         if (segStart === null) segStart = Math.max(0, nowMs() - 1500);
-        if (r.isFinal) { setInterim(""); commitSeg(r[0].transcript); }
+        if (r.isFinal) { diag("出字一段（" + r[0].transcript.length + " 字）"); setInterim(""); commitSeg(r[0].transcript); }
         else interim += r[0].transcript;
       }
       interimText = interim; setInterim(interim);
     };
+    rec.onstart = () => diag("聽寫開始");
     rec.onerror = (ev) => {
+      diag("⚠ 聽寫錯誤：" + ev.error);
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
         srBroken = true; srWanted = false;
         showErr("這個瀏覽器不允許即時聽寫，錄音仍在繼續，錄完可以把錄音檔交給小龍精修。");
       }
     };
     rec.onend = () => {
+      diag("聽寫結束" + (srWanted && state === "rec" ? "，自動重開" : ""));
       if (interimText) { setInterim(""); commitSeg(interimText); }
       if (srWanted && state === "rec") setTimeout(() => { if (srWanted && state === "rec") startSR(); }, 250);
     };
     rec.start();
-  } catch (e) { setTimeout(() => { if (srWanted && state === "rec") startSR(); }, 1000); }
+  } catch (e) { diag("⚠ 聽寫啟動失敗：" + (e && e.name)); setTimeout(() => { if (srWanted && state === "rec") startSR(); }, 1000); }
 }
 function stopSR() { srWanted = false; try { rec && rec.stop(); } catch (e) {} }
 
 // ---- 錄音 ----
 async function openMic() {
-  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-  recMime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
-  recorder = new MediaRecorder(stream, recMime ? { mimeType: recMime, audioBitsPerSecond: 32000 } : undefined);
-  recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) putChunk(ev.data); };
+  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  // 優先錄 m4a（AAC）：iPhone、Mac、Google 雲端硬碟都能直接播放；不支援才退回 webm
+  recMime = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+  recorder = new MediaRecorder(stream, recMime ? { mimeType: recMime, audioBitsPerSecond: 64000 } : undefined);
+  const track = stream.getAudioTracks()[0];
+  diag("麥克風開啟：" + (track && track.label) + "，格式 " + (recorder.mimeType || recMime));
+  if (track) { track.onmute = () => diag("⚠ 麥克風被靜音（mute）"); track.onunmute = () => diag("麥克風恢復（unmute）"); track.onended = () => diag("⚠ 麥克風中斷（ended）"); }
+  recorder.onerror = (ev) => diag("⚠ 錄音錯誤：" + (ev.error && ev.error.name));
+  recorder.ondataavailable = (ev) => {
+    diag("錄音片段 " + (ev.data ? ev.data.size : 0) + " bytes，這 5 秒最大音量 " + peak);
+    peak = 0;
+    if (ev.data && ev.data.size) putChunk(ev.data);
+  };
   recorder.start(5000);
   meterOn();
 }
@@ -275,7 +297,7 @@ function meterOn() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const an = audioCtx.createAnalyser(); an.fftSize = 512; audioCtx.createMediaStreamSource(stream).connect(an);
     const buf = new Uint8Array(an.fftSize);
-    const tick = () => { an.getByteTimeDomainData(buf); let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128)); $("meter").style.width = (state === "rec" ? Math.min(100, p * 1.6) : 0) + "%"; raf = requestAnimationFrame(tick); };
+    const tick = () => { an.getByteTimeDomainData(buf); let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128)); if (state === "rec") peak = Math.max(peak, p); $("meter").style.width = (state === "rec" ? Math.min(100, p * 1.6) : 0) + "%"; raf = requestAnimationFrame(tick); };
     tick();
   } catch (e) {}
 }
@@ -370,7 +392,7 @@ async function showTakeaway() {
     b.textContent = parts.length > 1 ? "下載錄音檔 " + (i + 1) : "下載錄音檔";
     b.onclick = () => {
       const blobs = chunks.filter((c) => c.part === p).sort((x, y) => x.idx - y.idx).map((c) => c.blob);
-      download(new Blob(blobs, { type: session.mime.split(";")[0] }), safeName() + (parts.length > 1 ? "_" + (i + 1) : "") + "." + ext);
+      download(new Blob(blobs, { type: /mp4|aac/.test(session.mime) ? "audio/mp4" : "audio/webm" }), safeName() + (parts.length > 1 ? "_" + (i + 1) : "") + "." + ext);
     };
     box.appendChild(b);
   });
@@ -381,7 +403,12 @@ $("btnCopy").onclick = async () => {
   try { await navigator.clipboard.writeText(text); $("takeMsg").textContent = "已複製（" + session.segments.length + " 段）。到整理頁貼上就可以整理。"; $("copyFallback").hidden = true; }
   catch (e) { const f = $("copyFallback"); f.value = text; f.hidden = false; f.focus(); f.select(); $("takeMsg").textContent = "自動複製失敗，請在上面的框裡全選後複製。"; }
 };
-$("btnTxt").onclick = () => download(new Blob([transcriptText()], { type: "text/plain;charset=utf-8" }), safeName() + ".txt");
+$("btnDiag").onclick = async () => {
+  const text = "【錄音頁診斷 " + VERSION + "】\n" + navigator.userAgent + "\n格式：" + session.mime + "\n" + (session.diag || []).join("\n") + "\n\n" + transcriptText();
+  try { await navigator.clipboard.writeText(text); $("takeMsg").textContent = "診斷紀錄已複製，請貼給小龍。"; $("copyFallback").hidden = true; }
+  catch (e) { const f = $("copyFallback"); f.value = text; f.hidden = false; f.focus(); f.select(); $("takeMsg").textContent = "自動複製失敗，請在上面的框裡全選後複製。"; }
+};
+$("btnTxt").onclick =() => download(new Blob([transcriptText()], { type: "text/plain;charset=utf-8" }), safeName() + ".txt");
 $("btnNew").onclick = () => { $("confirmNew").hidden = false; };
 $("btnNewNo").onclick = () => { $("confirmNew").hidden = true; };
 $("btnNewYes").onclick = async () => {
