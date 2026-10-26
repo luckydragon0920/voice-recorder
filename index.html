@@ -135,11 +135,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.1.1 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.1.2 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.1.1";
+const VERSION = "1.1.2";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -286,24 +286,43 @@ async function openMic() {
     // 關掉回音消除與降噪：開著的話，電腦喇叭播放的聲音（線上課程、影片）會被當成回音消掉，錄出來幾乎無聲
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
   }
-  // 優先錄 m4a（AAC）：iPhone、Mac、Google 雲端硬碟都能直接播放；不支援才退回 webm
-  recMime = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
-  recorder = new MediaRecorder(stream, recMime ? { mimeType: recMime, audioBitsPerSecond: 64000 } : undefined);
+  // 麥克風優先錄 m4a（AAC）：iPhone、Mac、Google 雲端硬碟都能直接播放。
+  // 錄電腦聲音時 Chrome 的 AAC 編碼會失敗（EncodingError），所以先用 webm；任何格式編碼失敗都自動換下一個
+  const prefer = mode === "tab"
+    ? ["audio/webm;codecs=opus", "audio/webm", "audio/mp4;codecs=mp4a.40.2", "audio/mp4"]
+    : ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
+  const types = prefer.filter((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
   const track = stream.getAudioTracks()[0];
-  diag("麥克風開啟：" + (track && track.label) + "，格式 " + (recorder.mimeType || recMime));
+  diag("收音開啟：" + (track && track.label));
   try { const st = track.getSettings(); diag("回音消除 " + st.echoCancellation + "、降噪 " + st.noiseSuppression + "、自動增益 " + st.autoGainControl); } catch (e) {}
-  if (track) { track.onmute = () => diag("⚠ 麥克風被靜音（mute）"); track.onunmute = () => diag("麥克風恢復（unmute）"); track.onended = () => {
+  if (track) { track.onmute = () => diag("⚠ 收音被靜音（mute）"); track.onunmute = () => diag("收音恢復（unmute）"); track.onended = () => {
     diag("⚠ 收音中斷（ended）");
     if (mode === "tab" && (state === "rec" || state === "pause")) { showErr("已經停止分享分頁聲音，錄音自動結束。"); finish(); }
   }; }
-  recorder.onerror = (ev) => diag("⚠ 錄音錯誤：" + (ev.error && ev.error.name));
-  recorder.ondataavailable = (ev) => {
+  startRecorder(types);
+  meterOn();
+}
+function startRecorder(types) {
+  recMime = types.shift() || "";
+  const r = new MediaRecorder(stream, recMime ? { mimeType: recMime, audioBitsPerSecond: 64000 } : undefined);
+  recorder = r;
+  if (session) session.mime = recMime || r.mimeType;
+  diag("錄音格式：" + (recMime || r.mimeType));
+  r.onerror = (ev) => {
+    diag("⚠ 錄音錯誤：" + (ev.error && ev.error.name) + "（" + recMime + "）");
+    if (types.length && (state === "rec" || state === "idle")) {
+      diag("改用下一個格式重錄");
+      part += 1; chunkIdx = 0; if (session) session.parts = part + 1; // 新格式另存一段，不跟舊格式混在一起
+      try { startRecorder(types); } catch (e) { diag("⚠ 換格式失敗：" + (e && e.name)); }
+    } else showErr("錄音編碼失敗，這台電腦錄不了這種聲音。請按「複製診斷紀錄」給小龍。");
+  };
+  r.ondataavailable = (ev) => {
+    if (r !== recorder) return; // 換掉的舊錄音機，丟掉它的資料
     diag("錄音片段 " + (ev.data ? ev.data.size : 0) + " bytes，這 5 秒最大音量 " + peak);
     peak = 0;
     if (ev.data && ev.data.size) putChunk(ev.data);
   };
-  recorder.start(5000);
-  meterOn();
+  r.start(5000);
 }
 function closeMic() {
   return new Promise((res) => {
