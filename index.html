@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>錄音頁可行性測試</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* 版面：單欄檢查表，每個測試一張卡 */
+:root {
+  --bg: #f5f6f4; --surface: #ffffff; --fg: #1d2420; --muted: #5d6862;
+  --line: #d9ded9; --accent: #1f6f5c; --accent-fg: #ffffff;
+  --ok: #1d7a3f; --ok-bg: #e2f3e8; --bad: #b3261e; --bad-bg: #fbe5e3; --wait-bg: #eceeea;
+  --rec: #c4372b;
+  --font-body: "Noto Sans TC", "PingFang TC", "Heiti TC", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #121614; --surface: #1b211e; --fg: #e6ebe7; --muted: #9aa69f;
+  --line: #2e3833; --accent: #5cc3a6; --accent-fg: #0d1a15;
+  --ok: #7fd89c; --ok-bg: #173323; --bad: #f2928a; --bad-bg: #3a1c1a; --wait-bg: #252c28;
+  --rec: #ff6b5e; color-scheme: dark } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: calc(24px + env(safe-area-inset-top, 0px)); padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px)); }
+[hidden] { display: none !important; }
+main { max-width: 680px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 22px; margin: 0; text-wrap: balance; }
+.lead { color: var(--muted); margin: 4px 0 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 10px; min-width: 0; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.head h2 { font-size: 17px; margin: 0; }
+.chip { font-size: 13px; font-weight: 500; padding: 2px 10px; border-radius: 999px; background: var(--wait-bg); color: var(--muted); white-space: nowrap; }
+.chip.ok { background: var(--ok-bg); color: var(--ok); }
+.chip.bad { background: var(--bad-bg); color: var(--bad); }
+.how { color: var(--muted); margin: 0; font-size: 14px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button, .btn { font: inherit; font-weight: 500; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); cursor: pointer; text-decoration: none; }
+button.ghost, .btn.ghost { background: transparent; color: var(--accent); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.log { font-family: var(--font-mono); font-size: 12.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 240px; overflow: auto; }
+.live { min-height: 90px; max-height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
+.live .interim { color: var(--muted); }
+.live .ts { font-family: var(--font-mono); font-size: 12px; color: var(--accent); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.meter { height: 10px; background: var(--wait-bg); border-radius: 5px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--rec); transition: width .08s linear; }
+.clock { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--rec); font-weight: 600; }
+audio { width: 100%; }
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>錄音頁可行性測試</h1>
+    <p class="lead">龍哥，請依序做下面三個測試，最後按「複製全部結果」貼給小龍。Mac 和手機各做一次。這個頁面不會上傳任何錄音或文字。</p>
+  </header>
+
+  <section class="card">
+    <div class="head"><h2>① 環境檢查</h2><span class="chip" id="s1">未測</span></div>
+    <p class="how">檢查這個瀏覽器有沒有錄音、聽寫、防休眠的功能。</p>
+    <div class="row"><button id="b1">開始檢查</button></div>
+    <pre class="log" id="l1">（還沒測）</pre>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>② 麥克風與錄音下載</h2><span class="chip" id="s2">未測</span></div>
+    <p class="how">按下後如果跳出「允許使用麥克風」，請按允許。會錄 8 秒，請隨便說幾句話。錄完可以播放，也可以試試「下載錄音檔」。</p>
+    <div class="row"><button id="b2">開始錄 8 秒</button><a class="btn ghost" id="d2" hidden>下載錄音檔</a></div>
+    <div class="meter" aria-hidden="true"><i id="m2"></i></div>
+    <audio id="a2" controls hidden></audio>
+    <pre class="log" id="l2">（還沒測）</pre>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>③ 即時聽寫（邊說邊出字）</h2><span class="chip" id="s3">未測</span></div>
+    <p class="how">按開始後用中文說話，字會出現在下面。中間停頓 10 秒，看會不會自己接上。說 1～2 分鐘後按結束。手機請保持螢幕亮著。</p>
+    <div class="row"><button id="b3">開始聽寫</button><button class="ghost" id="b3s" disabled>結束</button><span class="clock" id="clk3"></span></div>
+    <div class="live" id="live3" aria-live="polite"><span class="how">（字會出現在這裡）</span></div>
+    <pre class="log" id="l3">（還沒測）</pre>
+  </section>
+
+  <section class="card">
+    <div class="head"><h2>把結果交給小龍</h2></div>
+    <p class="how" id="msg">三個測試做完後，按下面的按鈕，再貼到跟小龍的對話裡。</p>
+    <div class="row"><button id="bcopy">複製全部結果</button></div>
+    <textarea id="fallback" rows="6" style="width:100%;font-family:var(--font-mono);font-size:12px" hidden readonly></textarea>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const results = { ua: navigator.userAgent, at: new Date().toISOString(), t1: null, t2: null, t3: null };
+
+function setChip(n, ok, text) { const c = $("s" + n); c.className = "chip " + (ok === null ? "" : ok ? "ok" : "bad"); c.textContent = text; }
+function log(n, lines) { $("l" + n).textContent = lines.join("\n"); }
+function errStr(e) { return e ? ((e.name || e.code || "Error") + "：" + (e.message || String(e))) : "未知錯誤"; }
+function deviceName() {
+  const u = navigator.userAgent;
+  const os = /iPhone|iPad/.test(u) ? "iOS" : /Android/.test(u) ? "Android" : /Mac/.test(u) ? "Mac" : "其他";
+  const br = /Edg/.test(u) ? "Edge" : /CriOS|Chrome/.test(u) ? "Chrome" : /FxiOS|Firefox/.test(u) ? "Firefox" : /Safari/.test(u) ? "Safari" : "其他";
+  return os + "／" + br;
+}
+function mmss(ms) { const s = Math.floor(ms / 1000); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); }
+
+// ① 環境檢查
+$("b1").onclick = async () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const r = {
+    device: deviceName(),
+    secureContext: window.isSecureContext,
+    mediaDevices: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+    speechRecognition: !!SR,
+    mediaRecorder: typeof MediaRecorder !== "undefined",
+    recorderTypes: typeof MediaRecorder !== "undefined" ? ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/aac"].filter(t => MediaRecorder.isTypeSupported(t)) : [],
+    micPermission: "查不到",
+    wakeLock: "不支援",
+    localStorage: "不行",
+  };
+  try { r.micPermission = (await navigator.permissions.query({ name: "microphone" })).state; } catch (e) { r.micPermission = "查不到（" + (e.name || "") + "）"; }
+  if ("wakeLock" in navigator) {
+    try { const w = await navigator.wakeLock.request("screen"); r.wakeLock = "可以"; await w.release(); } catch (e) { r.wakeLock = "被拒絕（" + errStr(e) + "）"; }
+  }
+  try { localStorage.setItem("vr-test", "1"); localStorage.removeItem("vr-test"); r.localStorage = "可以"; } catch (e) {}
+  results.t1 = r;
+  const ok = r.mediaDevices && r.speechRecognition;
+  setChip(1, ok, ok ? "功能都在" : "有缺");
+  log(1, [
+    "裝置：" + r.device,
+    "安全連線：" + (r.secureContext ? "是" : "否"),
+    "錄音功能：" + (r.mediaDevices ? "有" : "沒有"),
+    "內建聽寫：" + (r.speechRecognition ? "有" : "沒有"),
+    "錄音格式：" + (r.recorderTypes.join("、") || "無"),
+    "麥克風權限狀態：" + r.micPermission,
+    "螢幕防休眠：" + r.wakeLock,
+    "瀏覽器暫存：" + r.localStorage,
+  ]);
+};
+
+// ② 麥克風與錄音下載
+$("b2").onclick = async () => {
+  $("b2").disabled = true; $("d2").hidden = true;
+  const lines = [], r = { getUserMedia: null, recorded: null };
+  setChip(2, null, "測試中");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    r.getUserMedia = "成功"; lines.push("麥克風：成功打開");
+  } catch (e) {
+    r.getUserMedia = errStr(e); lines.push("麥克風：打不開 → " + errStr(e));
+    results.t2 = r; setChip(2, false, "打不開麥克風"); log(2, lines); $("b2").disabled = false; return;
+  }
+  let raf, ac;
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    const an = ac.createAnalyser(); an.fftSize = 512; ac.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    const tick = () => { an.getByteTimeDomainData(buf); let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128)); $("m2").style.width = Math.min(100, p * 1.6) + "%"; raf = requestAnimationFrame(tick); };
+    tick();
+  } catch (e) { lines.push("音量條：無法顯示（" + errStr(e) + "）"); }
+  log(2, lines.concat(["錄音中……"]));
+  const type = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+  const chunks = [];
+  try {
+    const rec = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : undefined);
+    rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
+    await new Promise((res) => { rec.onstop = res; rec.start(1000); setTimeout(() => rec.stop(), 8000); });
+  } catch (e) { lines.push("錄音：失敗 → " + errStr(e)); }
+  cancelAnimationFrame(raf); $("m2").style.width = "0"; stream.getTracks().forEach(t => t.stop()); if (ac) ac.close();
+  const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || type || "audio/webm" });
+  r.recorded = { mime: blob.type, bytes: blob.size, kbPerMinEstimate: Math.round(blob.size / 1024 / 8 * 60) };
+  lines.push("錄音：" + blob.size + " bytes，格式 " + blob.type);
+  lines.push("推算：1 小時約 " + Math.round(blob.size / 8 * 3600 / 1048576) + " MB");
+  if (blob.size) {
+    const url = URL.createObjectURL(blob);
+    $("a2").src = url; $("a2").hidden = false;
+    $("d2").href = url; $("d2").download = "測試錄音." + (/mp4|aac/.test(blob.type) ? "m4a" : "webm"); $("d2").hidden = false;
+    lines.push("↑ 可以按播放聽聽看，也可以按「下載錄音檔」");
+  }
+  results.t2 = r;
+  const ok = r.getUserMedia === "成功" && blob.size > 0;
+  setChip(2, ok, ok ? "通過" : "失敗"); log(2, lines); $("b2").disabled = false;
+};
+
+// ③ 即時聽寫
+let sr = null, srActive = false, srStart = 0, clockTimer = null, lastFinalAt = 0;
+const t3 = { finals: 0, chars: 0, restarts: 0, errors: [], longestGapSec: 0, durationSec: 0 };
+function startSR() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  sr = new SR(); sr.lang = "zh-TW"; sr.continuous = true; sr.interimResults = true;
+  let interimEl = null;
+  sr.onresult = (ev) => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const res = ev.results[i], text = res[0].transcript;
+      if (!interimEl) { interimEl = document.createElement("div"); interimEl.className = "interim"; $("live3").appendChild(interimEl); }
+      if (res.isFinal) {
+        const now = Date.now();
+        if (lastFinalAt) t3.longestGapSec = Math.max(t3.longestGapSec, Math.round((now - lastFinalAt) / 1000));
+        lastFinalAt = now; t3.finals++; t3.chars += text.length;
+        interimEl.className = ""; interimEl.textContent = "";
+        const ts = document.createElement("span"); ts.className = "ts"; ts.textContent = mmss(now - srStart);
+        interimEl.append(ts, document.createTextNode(text)); interimEl = null;
+      } else interimEl.textContent = text;
+    }
+    $("live3").scrollTop = $("live3").scrollHeight;
+  };
+  sr.onerror = (ev) => { t3.errors.push(ev.error + "@" + mmss(Date.now() - srStart)); };
+  sr.onend = () => { if (srActive) { t3.restarts++; try { startSR(); } catch (e) { t3.errors.push("restart:" + errStr(e)); } } };
+  sr.start();
+}
+let wake = null;
+$("b3").onclick = async () => {
+  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) { results.t3 = { supported: false }; setChip(3, false, "不支援"); log(3, ["這個瀏覽器沒有內建聽寫"]); return; }
+  $("live3").textContent = ""; Object.assign(t3, { finals: 0, chars: 0, restarts: 0, errors: [], longestGapSec: 0, durationSec: 0 });
+  srActive = true; srStart = Date.now(); lastFinalAt = 0;
+  setChip(3, null, "聽寫中"); $("b3").disabled = true; $("b3s").disabled = false;
+  log(3, ["聽寫中，請說話……"]);
+  clockTimer = setInterval(() => { $("clk3").textContent = "● " + mmss(Date.now() - srStart); }, 500);
+  try { if ("wakeLock" in navigator) wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+  try { startSR(); } catch (e) { t3.errors.push("start:" + errStr(e)); }
+};
+$("b3s").onclick = () => {
+  srActive = false; try { sr && sr.stop(); } catch (e) {}
+  clearInterval(clockTimer); $("clk3").textContent = "";
+  if (wake) { wake.release().catch(() => {}); wake = null; }
+  t3.durationSec = Math.round((Date.now() - srStart) / 1000);
+  results.t3 = { supported: true, ...t3, sample: $("live3").innerText.slice(0, 200) };
+  const ok = t3.finals > 0;
+  setChip(3, ok, ok ? "通過" : "沒有出字");
+  log(3, [
+    "聽寫時間：" + t3.durationSec + " 秒",
+    "出字段數：" + t3.finals + "，共 " + t3.chars + " 字",
+    "自動重新接上：" + t3.restarts + " 次",
+    "最長停頓後仍接上：" + t3.longestGapSec + " 秒",
+    "錯誤：" + (t3.errors.join("、") || "無"),
+  ]);
+  $("b3").disabled = false; $("b3s").disabled = true;
+};
+
+$("bcopy").onclick = async () => {
+  results.device = deviceName();
+  const text = "【錄音頁測試結果】\n" + JSON.stringify(results, null, 1);
+  try { await navigator.clipboard.writeText(text); $("msg").textContent = "已複製，請貼到跟小龍的對話裡。"; }
+  catch (e) { const f = $("fallback"); f.value = text; f.hidden = false; f.select(); $("msg").textContent = "自動複製失敗，請長按下面的文字框全選後複製。"; }
+};
+</script>
+</body>
+</html>
