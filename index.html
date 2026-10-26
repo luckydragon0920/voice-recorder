@@ -135,11 +135,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.1.0 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.1.1 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -152,6 +152,7 @@ let accMs = 0, runStart = 0;
 let stream = null, recorder = null, recMime = "", part = 0, chunkIdx = 0;
 let rec = null, srWanted = false, srBroken = false, segStart = null, interimText = "", interimEl = null;
 let wake = null, raf = 0, audioCtx = null, tickTimer = 0, peak = 0;
+let displayStream = null;
 let mode = "mic"; // mic：麥克風＋即時聽寫；tab：錄電腦（Chrome 分頁）的聲音，不即時出字
 const canTab = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !/iPhone|iPad|Android/.test(navigator.userAgent);
 
@@ -276,10 +277,10 @@ function stopSR() { srWanted = false; try { rec && rec.stop(); } catch (e) {} }
 // ---- 錄音 ----
 async function openMic() {
   if (mode === "tab") {
-    // 錄電腦聲音：Chrome 規定要「分享畫面」才拿得到聲音，只留聲音、畫面馬上關掉
-    const ds = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, selfBrowserSurface: "exclude", systemAudio: "include" });
-    ds.getVideoTracks().forEach((t) => t.stop());
-    if (!ds.getAudioTracks().length) { const err = new Error("no audio"); err.name = "NoTabAudio"; throw err; }
+    // 錄電腦聲音：Chrome 規定要「分享畫面」才拿得到聲音。畫面不能關（關掉會連聲音一起停），只是不錄它
+    const ds = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }, selfBrowserSurface: "exclude", systemAudio: "include" });
+    displayStream = ds;
+    if (!ds.getAudioTracks().length) { ds.getTracks().forEach((t) => t.stop()); displayStream = null; const err = new Error("no audio"); err.name = "NoTabAudio"; throw err; }
     stream = new MediaStream(ds.getAudioTracks());
   } else {
     // 關掉回音消除與降噪：開著的話，電腦喇叭播放的聲音（線上課程、影片）會被當成回音消掉，錄出來幾乎無聲
@@ -307,8 +308,9 @@ async function openMic() {
 function closeMic() {
   return new Promise((res) => {
     meterOff();
-    if (!recorder || recorder.state === "inactive") { stream && stream.getTracks().forEach((t) => t.stop()); return res(); }
-    recorder.onstop = () => { stream.getTracks().forEach((t) => t.stop()); setTimeout(res, 300); };
+    const stopAll = () => { stream && stream.getTracks().forEach((t) => t.stop()); if (displayStream) { displayStream.getTracks().forEach((t) => t.stop()); displayStream = null; } };
+    if (!recorder || recorder.state === "inactive") { stopAll(); return res(); }
+    recorder.onstop = () => { stopAll(); setTimeout(res, 300); };
     recorder.stop();
   });
 }
