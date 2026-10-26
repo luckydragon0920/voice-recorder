@@ -130,11 +130,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.0.1 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.0.2 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.0.1";
+const VERSION = "1.0.2";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -268,12 +268,14 @@ function stopSR() { srWanted = false; try { rec && rec.stop(); } catch (e) {} }
 
 // ---- 錄音 ----
 async function openMic() {
-  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  // 關掉回音消除與降噪：開著的話，電腦喇叭播放的聲音（線上課程、影片）會被當成回音消掉，錄出來幾乎無聲
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
   // 優先錄 m4a（AAC）：iPhone、Mac、Google 雲端硬碟都能直接播放；不支援才退回 webm
   recMime = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
   recorder = new MediaRecorder(stream, recMime ? { mimeType: recMime, audioBitsPerSecond: 64000 } : undefined);
   const track = stream.getAudioTracks()[0];
   diag("麥克風開啟：" + (track && track.label) + "，格式 " + (recorder.mimeType || recMime));
+  try { const st = track.getSettings(); diag("回音消除 " + st.echoCancellation + "、降噪 " + st.noiseSuppression + "、自動增益 " + st.autoGainControl); } catch (e) {}
   if (track) { track.onmute = () => diag("⚠ 麥克風被靜音（mute）"); track.onunmute = () => diag("麥克風恢復（unmute）"); track.onended = () => diag("⚠ 麥克風中斷（ended）"); }
   recorder.onerror = (ev) => diag("⚠ 錄音錯誤：" + (ev.error && ev.error.name));
   recorder.ondataavailable = (ev) => {
