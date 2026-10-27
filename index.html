@@ -136,11 +136,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.2.0 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.2.1 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -154,7 +154,18 @@ let stream = null, recorder = null, recMime = "", part = 0, chunkIdx = 0;
 let rec = null, srWanted = false, srBroken = false, segStart = null, interimText = "", interimEl = null;
 let wake = null, raf = 0, audioCtx = null, tickTimer = 0, peak = 0;
 let displayStream = null;
-let mode = "mic"; // mic：麥克風＋即時聽寫；tab：錄電腦（Chrome 分頁）的聲音，不即時出字
+let mode = "mic";
+// 聽寫看門狗：Chrome 的聽寫有時會「沒結束也沒回應」地卡住。有人在說話、卻 8 秒沒有任何聽寫回應，就自動重開
+let srLastEvent = 0, lastLoudAt = 0, srRestarts = 0;
+function srWatch() {
+  if (state !== "rec" || mode === "tab" || !srWanted || srBroken || !rec) return;
+  const now = Date.now(), quiet = now - srLastEvent;
+  if (quiet > 8000 && now - lastLoudAt < 3000) {
+    srRestarts++; diag("⚠ 聽寫 " + Math.round(quiet / 1000) + " 秒沒有回應但有人在說話，自動重開（第 " + srRestarts + " 次）");
+    srLastEvent = now;
+    try { rec.abort(); } catch (e) { startSR(); }
+  }
+} // mic：麥克風＋即時聽寫；tab：錄電腦（Chrome 分頁）的聲音，不即時出字
 const canTab = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !/iPhone|iPad|Android/.test(navigator.userAgent);
 
 // 診斷紀錄：記下聽寫與錄音的每個事件，出問題時複製給小龍
@@ -268,6 +279,7 @@ function startSR() {
   try {
     rec = new SR(); rec.lang = "zh-TW"; rec.continuous = true; rec.interimResults = true;
     rec.onresult = (ev) => {
+      srLastEvent = Date.now();
       let interim = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -278,7 +290,7 @@ function startSR() {
       notePause(interim.length);
       interimText = interim; setInterim(interim ? punctuate(interim, pauseMarks, true) : "");
     };
-    rec.onstart = () => diag("聽寫開始");
+    rec.onstart = () => { srLastEvent = Date.now(); diag("聽寫開始"); };
     rec.onerror = (ev) => {
       diag("⚠ 聽寫錯誤：" + ev.error);
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
@@ -360,7 +372,7 @@ function meterOn() {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const an = audioCtx.createAnalyser(); an.fftSize = 512; audioCtx.createMediaStreamSource(stream).connect(an);
     const buf = new Uint8Array(an.fftSize);
-    const tick = () => { an.getByteTimeDomainData(buf); let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128)); if (state === "rec") peak = Math.max(peak, p); $("meter").style.width = (state === "rec" ? Math.min(100, p * 1.6) : 0) + "%"; raf = requestAnimationFrame(tick); };
+    const tick = () => { an.getByteTimeDomainData(buf); let p = 0; for (const v of buf) p = Math.max(p, Math.abs(v - 128)); if (state === "rec") { peak = Math.max(peak, p); if (p >= 15) lastLoudAt = Date.now(); } $("meter").style.width = (state === "rec" ? Math.min(100, p * 1.6) : 0) + "%"; raf = requestAnimationFrame(tick); };
     tick();
   } catch (e) {}
 }
@@ -414,7 +426,7 @@ async function begin(continuing, newMode) {
   runStart = Date.now(); setState("rec"); saveSession();
   if (mode !== "tab") startSR();
   wakeOn();
-  clearInterval(tickTimer); tickTimer = setInterval(() => { tick(); if (Date.now() % 10000 < 500) saveSession(); }, 500);
+  clearInterval(tickTimer); tickTimer = setInterval(() => { tick(); srWatch(); if (Date.now() % 10000 < 500) saveSession(); }, 500);
   $("recover").hidden = true;
 }
 function pause() {
