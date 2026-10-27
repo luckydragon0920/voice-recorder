@@ -136,11 +136,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
       <span class="row"><button class="btn danger" id="btnNewYes">確定清除</button><button class="btn ghost" id="btnNewNo">取消</button></span></p>
   </section>
 
-  <footer>版本 1.2.1 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
+  <footer>版本 1.2.2 ・ 錄音與逐字稿只存在這台裝置，不會上傳</footer>
 </main>
 
 <script>
-const VERSION = "1.2.1";
+const VERSION = "1.2.2";
 const LS_KEY = "vr-session";
 const $ = (id) => document.getElementById(id);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -155,12 +155,13 @@ let rec = null, srWanted = false, srBroken = false, segStart = null, interimText
 let wake = null, raf = 0, audioCtx = null, tickTimer = 0, peak = 0;
 let displayStream = null;
 let mode = "mic";
-// 聽寫看門狗：Chrome 的聽寫有時會「沒結束也沒回應」地卡住。有人在說話、卻 8 秒沒有任何聽寫回應，就自動重開
+// 聽寫看門狗：Chrome 的聽寫有時會「沒結束也沒回應」地卡住。有人在說話、卻 4 秒沒有任何聽寫回應，就自動重開
+// （不用 3 秒：正常說話時聽寫偶爾也會慢 2～3 秒才回應，太短會一直誤重開、反而切掉字）
 let srLastEvent = 0, lastLoudAt = 0, srRestarts = 0;
 function srWatch() {
   if (state !== "rec" || mode === "tab" || !srWanted || srBroken || !rec) return;
   const now = Date.now(), quiet = now - srLastEvent;
-  if (quiet > 8000 && now - lastLoudAt < 3000) {
+  if (quiet > 4000 && now - lastLoudAt < 2000) {
     srRestarts++; diag("⚠ 聽寫 " + Math.round(quiet / 1000) + " 秒沒有回應但有人在說話，自動重開（第 " + srRestarts + " 次）");
     srLastEvent = now;
     try { rec.abort(); } catch (e) { startSR(); }
